@@ -27,8 +27,9 @@ export function StrategyWorkbench() {
     try {
       const response = await fetch("/api/analyze", {
         method: "POST",
+        cache: "no-store",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol: clean })
+        body: JSON.stringify({ symbol: clean, refresh: true })
       });
       const payload = await response.json();
 
