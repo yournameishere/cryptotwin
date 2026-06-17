@@ -1,4 +1,9 @@
 import { average, clamp } from "@/lib/format";
+import {
+  DEFAULT_MIN_30D_OUTCOME_SAMPLES,
+  DEFAULT_OPPORTUNITY_RESULT_LIMIT,
+  DEFAULT_OPPORTUNITY_SCAN_LIMIT
+} from "@/lib/runtime-config";
 import type {
   DnaProfile,
   MarketAsset,
@@ -16,7 +21,11 @@ const WEIGHTS = {
   liquidity: 0.12,
   marketCapStage: 0.15
 };
-const MIN_30D_OUTCOME_SAMPLES = 2;
+
+type TwinAnalysisOptions = {
+  cacheTtlMs?: number;
+  requestMode?: "fresh" | "cached";
+};
 
 function safeLog(value: number) {
   return Math.log10(Math.max(value, 1));
@@ -155,8 +164,10 @@ function buildStrategy(
 
 export function createTwinAnalysis(
   currentAsset: MarketAsset,
-  candidates: MarketAsset[]
+  candidates: MarketAsset[],
+  options: TwinAnalysisOptions = {}
 ): TwinAnalysis {
+  const generatedAt = new Date().toISOString();
   const currentDna = extractDna(currentAsset);
   const twins: TwinMatch[] = candidates
     .filter((candidate) => candidate.id !== currentAsset.id)
@@ -187,7 +198,7 @@ export function createTwinAnalysis(
     .map((match) => match.asset.percentChange30d)
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   const expectedReturn30d =
-    topThree30dReturns.length >= MIN_30D_OUTCOME_SAMPLES
+    topThree30dReturns.length >= DEFAULT_MIN_30D_OUTCOME_SAMPLES
       ? average(topThree30dReturns)
       : null;
   const confidence = clamp(
@@ -216,11 +227,21 @@ export function createTwinAnalysis(
     confidence,
     expectedReturn30d,
     outcomeSampleSize: topThree30dReturns.length,
-    outcomeMinimumSampleSize: MIN_30D_OUTCOME_SAMPLES,
+    outcomeMinimumSampleSize: DEFAULT_MIN_30D_OUTCOME_SAMPLES,
+    sourceFreshness: {
+      requestMode: options.requestMode ?? "cached",
+      providerUpdatedAt: latestProviderUpdate([currentAsset, ...topThree.map((match) => match.asset)]),
+      generatedAt,
+      cacheTtlSeconds: Math.round((options.cacheTtlMs ?? 0) / 1000),
+      nextCachedRefreshAt:
+        options.cacheTtlMs && options.cacheTtlMs > 0
+          ? new Date(Date.parse(generatedAt) + options.cacheTtlMs).toISOString()
+          : null
+    },
     strategy: buildStrategy(currentAsset, expectedReturn30d, confidence),
     explanation: buildFallbackExplanation(currentAsset, twins, expectedReturn30d),
     dataMode: "live-cmc",
-    generatedAt: new Date().toISOString()
+    generatedAt
   };
 }
 
@@ -243,7 +264,10 @@ export function buildFallbackExplanation(
   return `${currentAsset.symbol} currently maps closest to ${best.asset.symbol}. The strongest shared signals are ${best.drivers.join(", ").toLowerCase()}. The matched cohort shows ${returnText}. Treat this as a research signal, not financial advice.`;
 }
 
-export function createOpportunities(assets: MarketAsset[], scanLimit = 120) {
+export function createOpportunities(
+  assets: MarketAsset[],
+  scanLimit = DEFAULT_OPPORTUNITY_SCAN_LIMIT
+) {
   return assets
     .slice(0, scanLimit)
     .map((asset) => {
@@ -282,5 +306,14 @@ export function createOpportunities(assets: MarketAsset[], scanLimit = 120) {
         b.similarity + b.confidence + Math.max(b.expectedReturn30d ?? -20, -20);
       return scoreB - scoreA;
     })
-    .slice(0, 12);
+    .slice(0, DEFAULT_OPPORTUNITY_RESULT_LIMIT);
+}
+
+function latestProviderUpdate(assets: MarketAsset[]) {
+  const latestMs = assets.reduce((latest, asset) => {
+    const parsed = Date.parse(asset.lastUpdated);
+    return Number.isFinite(parsed) ? Math.max(latest, parsed) : latest;
+  }, 0);
+
+  return latestMs > 0 ? new Date(latestMs).toISOString() : null;
 }

@@ -66,6 +66,14 @@ export type StrategyRule = {
   reason: string;
 };
 
+export type SourceFreshness = {
+  requestMode: "fresh" | "cached";
+  providerUpdatedAt: string | null;
+  generatedAt: string;
+  cacheTtlSeconds: number;
+  nextCachedRefreshAt: string | null;
+};
+
 export type TwinAnalysis = {
   currentAsset: MarketAsset;
   currentDna: DnaProfile;
@@ -75,6 +83,7 @@ export type TwinAnalysis = {
   expectedReturn30d: number | null;
   outcomeSampleSize: number;
   outcomeMinimumSampleSize: number;
+  sourceFreshness: SourceFreshness;
   strategy: StrategyRule[];
   explanation: string;
   dataMode: "live-cmc" | "live-cmc-with-ai";
