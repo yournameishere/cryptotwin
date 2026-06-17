@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getOpportunitySet } from "@/lib/analysis-service";
 import { CoinMarketCapError } from "@/lib/cmc";
+import { getServerEnv } from "@/lib/env";
 import { logServerError } from "@/lib/log";
 import { checkRateLimit, getClientKey } from "@/lib/rate-limit";
 
@@ -9,10 +10,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const { opportunitiesRateLimit, rateLimitWindowMs } = getServerEnv();
   const rateLimit = await checkRateLimit({
     key: getClientKey(request, "opportunities"),
-    limit: 60,
-    windowMs: 60_000
+    limit: opportunitiesRateLimit,
+    windowMs: rateLimitWindowMs
   });
 
   if (!rateLimit.allowed) {
@@ -31,7 +33,11 @@ export async function GET(request: Request) {
   }
 
   try {
-    return NextResponse.json(await getOpportunitySet());
+    return NextResponse.json(await getOpportunitySet(), {
+      headers: {
+        "Cache-Control": "no-store, max-age=0"
+      }
+    });
   } catch (error) {
     if (error instanceof CoinMarketCapError) {
       return NextResponse.json(
