@@ -47,8 +47,21 @@ export function formatDateTime(value: string | null | undefined) {
   return new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
     timeStyle: "short",
-    timeZone: "UTC"
+    timeZoneName: "short"
   }).format(date);
+}
+
+export function formatDuration(seconds: number | null | undefined) {
+  if (!seconds || seconds <= 0) {
+    return "--";
+  }
+
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+
+  const minutes = Math.round(seconds / 60);
+  return `${minutes}m`;
 }
 
 export function clamp(value: number, min: number, max: number) {
