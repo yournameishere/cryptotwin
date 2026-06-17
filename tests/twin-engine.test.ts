@@ -44,6 +44,45 @@ test("insufficient 30 day samples keep strategy target inactive", () => {
   assert.equal(longTarget?.value, "Inactive");
 });
 
+test("analysis exposes source freshness for fresh provider pulls", () => {
+  const current = makeAsset({
+    id: 1,
+    symbol: "CUR",
+    lastUpdated: "2026-01-01T00:00:00.000Z"
+  });
+  const candidates = [
+    current,
+    makeAsset({
+      id: 2,
+      symbol: "ONE",
+      percentChange30d: 10,
+      lastUpdated: "2026-01-01T00:01:00.000Z"
+    }),
+    makeAsset({
+      id: 3,
+      symbol: "TWO",
+      percentChange30d: 11,
+      lastUpdated: "2026-01-01T00:02:00.000Z"
+    }),
+    makeAsset({
+      id: 4,
+      symbol: "THREE",
+      percentChange30d: 12,
+      lastUpdated: "2026-01-01T00:03:00.000Z"
+    })
+  ];
+
+  const analysis = createTwinAnalysis(current, candidates, {
+    cacheTtlMs: 60_000,
+    requestMode: "fresh"
+  });
+
+  assert.equal(analysis.sourceFreshness.requestMode, "fresh");
+  assert.equal(analysis.sourceFreshness.cacheTtlSeconds, 60);
+  assert.equal(analysis.sourceFreshness.nextCachedRefreshAt, null);
+  assert.equal(analysis.sourceFreshness.providerUpdatedAt, "2026-01-01T00:03:00.000Z");
+});
+
 test("opportunities carry stable CMC asset ids for report links", () => {
   const current = makeAsset({ id: 1, symbol: "CUR", percentChange30d: 12 });
   const candidates = [
