@@ -3,7 +3,13 @@
 import { ArrowDownRight, ArrowUpRight, Minus, ShieldCheck } from "lucide-react";
 
 import { SignalChart } from "@/components/signal-chart";
-import { formatCompact, formatCurrency, formatDateTime, formatPercent } from "@/lib/format";
+import {
+  formatCompact,
+  formatCurrency,
+  formatDateTime,
+  formatDuration,
+  formatPercent
+} from "@/lib/format";
 import type { TwinAnalysis } from "@/lib/types";
 
 export function TwinResult({
@@ -16,6 +22,8 @@ export function TwinResult({
   const best = analysis.twins[0];
   const platform = analysis.currentAsset.platform;
   const onChain = analysis.currentAsset.onChainVerification;
+  const freshness = analysis.sourceFreshness;
+  const providerUpdatedAt = freshness.providerUpdatedAt ?? analysis.currentAsset.lastUpdated;
 
   return (
     <article className={expanded ? "result is-expanded" : "result"}>
@@ -38,7 +46,9 @@ export function TwinResult({
           label="Chain"
           value={analysis.currentAsset.platform?.name ?? "Native asset"}
         />
-        <Metric label="Quote updated" value={formatDateTime(analysis.currentAsset.lastUpdated)} />
+        <Metric label="CMC pull" value={formatFreshnessMode(freshness.requestMode)} />
+        <Metric label="Quote updated" value={formatDateTime(providerUpdatedAt)} />
+        <Metric label="Cache TTL" value={formatDuration(freshness.cacheTtlSeconds)} />
         <Metric label="Confidence" value={`${analysis.confidence}%`} />
         <Metric
           label="30d samples"
@@ -101,12 +111,29 @@ export function TwinResult({
       <footer className="result-foot">
         <ShieldCheck aria-hidden size={16} />
         <span>
-          Data mode: {analysis.dataMode}. Research signal only, not financial
-          advice. Generated {formatDateTime(analysis.generatedAt)}.
+          Data mode: {analysis.dataMode}. {formatFreshnessDetail(freshness)}
+          Research signal only, not financial advice. Generated{" "}
+          {formatDateTime(freshness.generatedAt)}.
         </span>
       </footer>
     </article>
   );
+}
+
+function formatFreshnessMode(mode: TwinAnalysis["sourceFreshness"]["requestMode"]) {
+  return mode === "fresh" ? "Fresh CMC pull" : "Server cache";
+}
+
+function formatFreshnessDetail(freshness: TwinAnalysis["sourceFreshness"]) {
+  if (freshness.requestMode === "fresh") {
+    return "CoinMarketCap was queried for this run. ";
+  }
+
+  if (freshness.nextCachedRefreshAt) {
+    return `Cached quote window refreshes after ${formatDateTime(freshness.nextCachedRefreshAt)}. `;
+  }
+
+  return "Served from the current server quote window. ";
 }
 
 function formatOnChainStatus(status: NonNullable<TwinAnalysis["currentAsset"]["onChainVerification"]>["status"]) {

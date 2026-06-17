@@ -168,6 +168,8 @@ export function createTwinAnalysis(
   options: TwinAnalysisOptions = {}
 ): TwinAnalysis {
   const generatedAt = new Date().toISOString();
+  const requestMode = options.requestMode ?? "cached";
+  const cacheTtlMs = options.cacheTtlMs ?? 0;
   const currentDna = extractDna(currentAsset);
   const twins: TwinMatch[] = candidates
     .filter((candidate) => candidate.id !== currentAsset.id)
@@ -229,13 +231,13 @@ export function createTwinAnalysis(
     outcomeSampleSize: topThree30dReturns.length,
     outcomeMinimumSampleSize: DEFAULT_MIN_30D_OUTCOME_SAMPLES,
     sourceFreshness: {
-      requestMode: options.requestMode ?? "cached",
+      requestMode,
       providerUpdatedAt: latestProviderUpdate([currentAsset, ...topThree.map((match) => match.asset)]),
       generatedAt,
-      cacheTtlSeconds: Math.round((options.cacheTtlMs ?? 0) / 1000),
+      cacheTtlSeconds: Math.round(cacheTtlMs / 1000),
       nextCachedRefreshAt:
-        options.cacheTtlMs && options.cacheTtlMs > 0
-          ? new Date(Date.parse(generatedAt) + options.cacheTtlMs).toISOString()
+        requestMode === "cached" && cacheTtlMs > 0
+          ? new Date(Date.parse(generatedAt) + cacheTtlMs).toISOString()
           : null
     },
     strategy: buildStrategy(currentAsset, expectedReturn30d, confidence),

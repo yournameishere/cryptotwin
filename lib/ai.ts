@@ -52,6 +52,7 @@ export async function enrichAnalysisWithAi(analysis: TwinAnalysis) {
             expectedReturn30d: analysis.expectedReturn30d,
             outcomeSampleSize: analysis.outcomeSampleSize,
             outcomeMinimumSampleSize: analysis.outcomeMinimumSampleSize,
+            sourceFreshness: analysis.sourceFreshness,
             strategy: analysis.strategy
           })
         }

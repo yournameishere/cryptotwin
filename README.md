@@ -79,7 +79,7 @@ Analysis service
 ## Data Flow
 
 1. A user enters a ticker, slug, or CoinMarketCap ID.
-2. The server loads the configured CMC market universe.
+2. Manual analysis requests ask the server to load the configured CMC market universe with a fresh CoinMarketCap quote pull.
 3. If the asset is not already in the universe, the server resolves it by stable ID, symbol map lookup, or active slug/name map lookup, then fetches quotes by ID.
 4. The engine converts each asset into a normalized DNA vector.
 5. The target asset is compared against candidates with weighted distance scoring.
@@ -100,6 +100,11 @@ ETHEREUM_RPC_URL=
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 MARKET_UNIVERSE_LIMIT=500
 OPPORTUNITY_SCAN_LIMIT=120
+CMC_QUOTE_CACHE_TTL_MS=60000
+CMC_MAP_CACHE_TTL_MS=300000
+ANALYZE_RATE_LIMIT=20
+OPPORTUNITIES_RATE_LIMIT=60
+RATE_LIMIT_WINDOW_MS=60000
 UPSTASH_REDIS_REST_URL=
 UPSTASH_REDIS_REST_TOKEN=
 RATE_LIMIT_KEY_SALT=
@@ -117,6 +122,11 @@ Optional:
 - `NEXT_PUBLIC_APP_URL` - public base URL for deployment metadata or future sharing flows.
 - `MARKET_UNIVERSE_LIMIT` - CMC listings loaded for matching, default `500`, clamped between `20` and `5000`.
 - `OPPORTUNITY_SCAN_LIMIT` - leading assets scanned for the opportunities list, default `120`, clamped between `20` and `500`.
+- `CMC_QUOTE_CACHE_TTL_MS` - short server quote cache for quota-sensitive flows, default `60000`. Manual browser analysis sends `refresh: true` and bypasses this cache.
+- `CMC_MAP_CACHE_TTL_MS` - server cache for CMC asset map lookups, default `300000`.
+- `ANALYZE_RATE_LIMIT` - analysis requests allowed per client window, default `20`.
+- `OPPORTUNITIES_RATE_LIMIT` - opportunities requests allowed per client window, default `60`.
+- `RATE_LIMIT_WINDOW_MS` - rate-limit window length, default `60000`.
 - `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` - optional durable rate-limit store for multi-instance production deployments.
 - `RATE_LIMIT_KEY_SALT` - optional salt used when hashing rate-limit client identifiers.
 
@@ -179,9 +189,14 @@ Request:
 
 ```json
 {
-  "symbol": "BTC"
+  "symbol": "BTC",
+  "refresh": true
 }
 ```
+
+`refresh` defaults to `true` for browser analysis so each manual run queries
+CoinMarketCap again. Server-rendered report paths and background opportunity
+flows can use the short cache to reduce duplicate quota usage.
 
 Response:
 
@@ -207,7 +222,7 @@ Response:
 
 - API keys are server-only and ignored by git through `.env.local`.
 - CoinMarketCap requests use the `X-CMC_PRO_API_KEY` header.
-- CMC responses are cached briefly in memory to reduce duplicate calls during one server process.
+- Manual analysis bypasses the in-memory quote cache; background and shareable report flows can use the brief cache to reduce duplicate calls during one server process.
 - CMC calls retry transient failures and surface API errors through server routes.
 - Public API routes use hashed client identifiers. Configure Upstash Redis REST for durable multi-instance rate limits; otherwise the app falls back to local in-memory limits for development and single-process deployments.
 - Security headers are configured in `next.config.ts`.
