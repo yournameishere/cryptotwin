@@ -1,11 +1,16 @@
 import "server-only";
 
-import { requireCoinMarketCapKey } from "@/lib/env";
+import { getServerEnv, requireCoinMarketCapKey } from "@/lib/env";
+import { CMC_MAP_LIMIT } from "@/lib/runtime-config";
 import type { MarketAsset } from "@/lib/types";
 
 const CMC_BASE_URL = "https://pro-api.coinmarketcap.com";
-const CACHE_TTL_MS = 60_000;
 const cache = new Map<string, { expiresAt: number; value: unknown }>();
+
+type CmcRequestOptions = {
+  forceRefresh?: boolean;
+  ttlMs?: number;
+};
 
 type CmcQuote = {
   price?: number;
@@ -75,9 +80,10 @@ export class CoinMarketCapError extends Error {
 async function requestCoinMarketCap<T>(
   path: string,
   params: Record<string, string>,
-  ttlMs = CACHE_TTL_MS
+  options: CmcRequestOptions = {}
 ): Promise<T> {
   const apiKey = requireCoinMarketCapKey();
+  const ttlMs = options.ttlMs ?? getServerEnv().cmcQuoteCacheTtlMs;
   const url = new URL(path, CMC_BASE_URL);
 
   Object.entries(params).forEach(([key, value]) => {
@@ -90,7 +96,7 @@ async function requestCoinMarketCap<T>(
   const hit = cache.get(cacheKey);
   const now = Date.now();
 
-  if (hit && hit.expiresAt > now) {
+  if (!options.forceRefresh && hit && hit.expiresAt > now) {
     return hit.value as T;
   }
 
@@ -129,7 +135,13 @@ async function requestCoinMarketCap<T>(
       }
 
       const data = payload?.data as T;
-      cache.set(cacheKey, { expiresAt: now + ttlMs, value: data });
+
+      if (ttlMs > 0) {
+        cache.set(cacheKey, { expiresAt: Date.now() + ttlMs, value: data });
+      } else {
+        cache.delete(cacheKey);
+      }
+
       return data;
     } catch (error) {
       lastError = error;
@@ -213,7 +225,7 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-export async function getLatestListings(limit = 250) {
+export async function getLatestListings(limit: number, options: CmcRequestOptions = {}) {
   const data = await requestCoinMarketCap<CmcAsset[]>(
     "/v1/cryptocurrency/listings/latest",
     {
@@ -223,34 +235,35 @@ export async function getLatestListings(limit = 250) {
       sort: "market_cap",
       sort_dir: "desc",
       aux: "num_market_pairs,cmc_rank,date_added,tags,platform,max_supply,circulating_supply,total_supply"
-    }
+    },
+    options
   );
 
   return data.map(toMarketAsset).filter((asset): asset is MarketAsset => Boolean(asset));
 }
 
-export async function resolveAssetByQuery(query: string) {
+export async function resolveAssetByQuery(query: string, options: CmcRequestOptions = {}) {
   const clean = query.trim();
   const id = parseCmcId(clean);
 
   if (id !== null) {
-    return resolveAssetById(id);
+    return resolveAssetById(id, options);
   }
 
   const bySymbol = /^[a-zA-Z0-9]+$/.test(clean)
-    ? await resolveAssetBySymbol(clean)
+    ? await resolveAssetBySymbol(clean, options)
     : null;
 
   if (bySymbol) {
     return bySymbol;
   }
 
-  return resolveAssetFromMap(clean);
+  return resolveAssetFromMap(clean, options);
 }
 
-async function resolveAssetById(id: number) {
+async function resolveAssetById(id: number, options: CmcRequestOptions = {}) {
   try {
-    return (await getQuotesByIds([id]))[0] ?? null;
+    return (await getQuotesByIds([id], options))[0] ?? null;
   } catch (error) {
     if (error instanceof CoinMarketCapError && error.statusCode === 400) {
       return null;
@@ -269,8 +282,12 @@ function parseCmcId(query: string) {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
-export async function resolveAssetBySymbol(symbol: string) {
+export async function resolveAssetBySymbol(
+  symbol: string,
+  options: CmcRequestOptions = {}
+) {
   const normalized = symbol.trim().toUpperCase();
+  const { cmcMapCacheTtlMs } = getServerEnv();
   let mapData: CmcMapAsset[];
 
   try {
@@ -280,7 +297,7 @@ export async function resolveAssetBySymbol(symbol: string) {
         symbol: normalized,
         listing_status: "active"
       },
-      5 * CACHE_TTL_MS
+      { forceRefresh: options.forceRefresh, ttlMs: cmcMapCacheTtlMs }
     );
   } catch (error) {
     if (error instanceof CoinMarketCapError && error.statusCode === 400) {
@@ -300,12 +317,13 @@ export async function resolveAssetBySymbol(symbol: string) {
     return null;
   }
 
-  const quotes = await getQuotesByIds(ids);
+  const quotes = await getQuotesByIds(ids, options);
   return quotes.sort((a, b) => b.marketCap - a.marketCap)[0] ?? null;
 }
 
-async function resolveAssetFromMap(query: string) {
+async function resolveAssetFromMap(query: string, options: CmcRequestOptions = {}) {
   const normalized = query.trim().toLowerCase();
+  const { cmcMapCacheTtlMs } = getServerEnv();
 
   if (!normalized) {
     return null;
@@ -316,10 +334,10 @@ async function resolveAssetFromMap(query: string) {
     {
       listing_status: "active",
       start: "1",
-      limit: "5000",
+      limit: String(CMC_MAP_LIMIT),
       sort: "cmc_rank"
     },
-    5 * CACHE_TTL_MS
+    { forceRefresh: options.forceRefresh, ttlMs: cmcMapCacheTtlMs }
   );
 
   const match = mapData
@@ -335,18 +353,22 @@ async function resolveAssetFromMap(query: string) {
     return null;
   }
 
-  return resolveAssetById(match.id);
+  return resolveAssetById(match.id, options);
 }
 
-export async function findAssetsBySymbol(symbol: string) {
+export async function findAssetsBySymbol(
+  symbol: string,
+  options: CmcRequestOptions = {}
+) {
   const normalized = symbol.trim().toUpperCase();
+  const { cmcMapCacheTtlMs } = getServerEnv();
   const mapData = await requestCoinMarketCap<CmcMapAsset[]>(
     "/v1/cryptocurrency/map",
     {
       symbol: normalized,
       listing_status: "active"
     },
-    5 * CACHE_TTL_MS
+    { forceRefresh: options.forceRefresh, ttlMs: cmcMapCacheTtlMs }
   );
   const ids = mapData
     .filter((asset) => asset.symbol.toUpperCase() === normalized)
@@ -354,17 +376,21 @@ export async function findAssetsBySymbol(symbol: string) {
     .slice(0, 5)
     .map((asset) => asset.id);
 
-  return ids.length ? getQuotesByIds(ids) : [];
+  return ids.length ? getQuotesByIds(ids, options) : [];
 }
 
-export async function getQuotesByIds(ids: number[]) {
+export async function getQuotesByIds(
+  ids: number[],
+  options: CmcRequestOptions = {}
+) {
   const data = await requestCoinMarketCap<Record<string, CmcAsset> | CmcAsset[]>(
     "/v2/cryptocurrency/quotes/latest",
     {
       id: ids.join(","),
       convert: "USD",
       aux: "num_market_pairs,cmc_rank,date_added,tags,platform,max_supply,circulating_supply,total_supply"
-    }
+    },
+    options
   );
 
   const rows = Array.isArray(data) ? data : Object.values(data).flat();
