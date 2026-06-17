@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="CryptoTwin AI">
+  <defs>
+    <linearGradient id="coin" x1="112" x2="400" y1="96" y2="416" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9cf7c1"/>
+      <stop offset="1" stop-color="#4fd6c0"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="108" fill="#101815"/>
+  <path d="M146 166h126c60 0 98 37 98 91s-38 90-98 90H146V166Zm70 62v57h51c22 0 35-11 35-29s-13-28-35-28h-51Z" fill="url(#coin)"/>
+  <path d="M146 376h220" stroke="#eef7ef" stroke-width="36" stroke-linecap="round"/>
+  <path d="M363 150l29 29m0-29-29 29" stroke="#f3c95c" stroke-width="20" stroke-linecap="round"/>
+</svg>
