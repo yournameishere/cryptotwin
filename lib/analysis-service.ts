@@ -17,14 +17,19 @@ export async function getMarketUniverse() {
   return getLatestListings(getServerEnv().marketUniverseLimit);
 }
 
-export async function analyzeSymbol(symbol: string) {
-  const universe = await getMarketUniverse();
+export async function analyzeSymbol(
+  symbol: string,
+  options: { forceRefresh?: boolean } = {}
+) {
+  const { cmcQuoteCacheTtlMs, marketUniverseLimit } = getServerEnv();
+  const cmcOptions = { forceRefresh: options.forceRefresh, ttlMs: cmcQuoteCacheTtlMs };
+  const universe = await getLatestListings(marketUniverseLimit, cmcOptions);
   const query = symbol.trim();
   const normalizedQuery = query.toUpperCase();
   let current: MarketAsset | null = findBestLocalMatch(universe, normalizedQuery);
 
   if (!current) {
-    current = await resolveAssetByQuery(query);
+    current = await resolveAssetByQuery(query, cmcOptions);
   }
 
   if (!current) {
@@ -37,7 +42,10 @@ export async function analyzeSymbol(symbol: string) {
     ? universe.map((asset) => (asset.id === current.id ? current : asset))
     : [current, ...universe];
 
-  return createTwinAnalysis(current, candidates);
+  return createTwinAnalysis(current, candidates, {
+    cacheTtlMs: cmcQuoteCacheTtlMs,
+    requestMode: options.forceRefresh ? "fresh" : "cached"
+  });
 }
 
 function findBestLocalMatch(universe: MarketAsset[], query: string) {

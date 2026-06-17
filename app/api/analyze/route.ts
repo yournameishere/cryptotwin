@@ -6,19 +6,22 @@ import { CoinMarketCapError } from "@/lib/cmc";
 import { enrichAnalysisWithAi } from "@/lib/ai";
 import { logServerError } from "@/lib/log";
 import { checkRateLimit, getClientKey } from "@/lib/rate-limit";
+import { getServerEnv } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const AnalyzeSchema = z.object({
-  symbol: z.string().trim().min(1).max(80).regex(/^[a-zA-Z0-9][a-zA-Z0-9-]*$/)
+  symbol: z.string().trim().min(1).max(80).regex(/^[a-zA-Z0-9][a-zA-Z0-9-]*$/),
+  refresh: z.boolean().optional().default(true)
 });
 
 export async function POST(request: Request) {
+  const { analyzeRateLimit, rateLimitWindowMs } = getServerEnv();
   const rateLimit = await checkRateLimit({
     key: getClientKey(request, "analyze"),
-    limit: 20,
-    windowMs: 60_000
+    limit: analyzeRateLimit,
+    windowMs: rateLimitWindowMs
   });
 
   if (!rateLimit.allowed) {
@@ -49,9 +52,15 @@ export async function POST(request: Request) {
   }
 
   try {
-    const analysis = await analyzeSymbol(parsed.data.symbol);
+    const analysis = await analyzeSymbol(parsed.data.symbol, {
+      forceRefresh: parsed.data.refresh
+    });
     const enriched = await enrichAnalysisWithAi(analysis);
-    return NextResponse.json(enriched);
+    return NextResponse.json(enriched, {
+      headers: {
+        "Cache-Control": "no-store, max-age=0"
+      }
+    });
   } catch (error) {
     if (error instanceof AssetNotFoundError) {
       return NextResponse.json(
